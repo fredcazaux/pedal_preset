@@ -8,6 +8,47 @@
 #include <USB-MIDI.h> // https://github.com/lathoub/Arduino-USBMIDI 1.1.2
 #include <EEPROM.h> // Arduino AVR Boards 1.8.6
 #include <CircularBuffer.hpp> // https://github.com/rlogiacco/CircularBuffer 1.4.0
+#include <RH_ASK.h>  // https://www.airspayce.com/mikem/arduino/RadioHead/ 1.13.0
+
+
+// RH_ASK driver(2000, 11, 12, 10);  // (speed, rxPin, txPin, pttPin) pour ATmega328
+RH_ASK driver(2000, 0, 1, 2);  // Brochage pour Pro Micro (RX=0, TX=1, PTT=2)
+
+// ===== 433MHz SECTION =====
+#define RF433_BUFFER_SIZE 4  // Taille du buffer pour les codes RF
+uint8_t rf433_buf[RF433_BUFFER_SIZE];
+uint8_t rf433_buflen = sizeof(rf433_buf);
+
+// Mapping des télécommandes vers valeurs Cue
+// À adapter selon vos besoins
+#define NB_REMOTES 2
+#define BUTTONS_PER_REMOTE 4  // 4 boutons par télécommande
+
+// Structure pour stocker les codes RF des télécommandes
+struct RemoteButton {
+  uint8_t code;  // Code simplifié de la télécommande (0-255)
+  byte cueValue; // Valeur Cue à envoyer (0-127)
+};
+
+RemoteButton remoteMap[NB_REMOTES][BUTTONS_PER_REMOTE] = {
+  // Télécommande 1
+  {
+    {0x10, 0},    // Bouton 1 → Cue 0
+    {0x20, 32},   // Bouton 2 → Cue 32
+    {0x40, 64},   // Bouton 3 → Cue 64
+    {0x80, 96}    // Bouton 4 → Cue 96
+  },
+  // Télécommande 2
+  {
+    {0x11, 1},    // Bouton 1 → Cue 1
+    {0x21, 33},   // Bouton 2 → Cue 33
+    {0x41, 65},   // Bouton 3 → Cue 65
+    {0x81, 97}    // Bouton 4 → Cue 97
+  }
+};
+
+unsigned long lastRF433_Time = 0;
+#define RF433_DEBOUNCE 500  // Débounce 500ms
 
 // USB-MIDI
 USBMIDI_CREATE_DEFAULT_INSTANCE();
@@ -137,12 +178,20 @@ void setup() {
   // INIT DISPLAY
   // display.init();
   display.begin();
+
+  // SETUP 433MHz RF
+  if (!driver.init()) {
+    Serial.println("RF433 init failed");
+  } else {
+    Serial.println("RF433 initialized");
+  }
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
   if(Menu == 0) { // Normal Mode
     handleButtons();
+    handle433MHz();
     Display_Status();
     Display_Cue();
     handleMIDI();
@@ -182,6 +231,34 @@ void handleButtons() {
   }
   if(Sw_Minus.pressedFor(LONG_PRESS_TIME) && Sw_Plus.wasPressed()) {
     Menu++;
+  }
+}
+
+void handle433MHz() {
+  if (driver.recv(rf433_buf, &rf433_buflen)) {
+    // Débounce
+    if(millis() - lastRF433_Time < RF433_DEBOUNCE) return;
+    lastRF433_Time = millis();
+    
+    uint8_t receivedCode = rf433_buf[0];  // Premier byte du message
+    
+    // Rechercher le code dans le mapping
+    for(int remote = 0; remote < NB_REMOTES; remote++) {
+      for(int btn = 0; btn < BUTTONS_PER_REMOTE; btn++) {
+        if(remoteMap[remote][btn].code == receivedCode) {
+          Cue = remoteMap[remote][btn].cueValue;
+          MIDI.sendControlChange(CtrlNr, Cue, Channel);
+          OutBlink();
+          Serial.print("RF433: Télécommande ");
+          Serial.print(remote + 1);
+          Serial.print(" Bouton ");
+          Serial.print(btn + 1);
+          Serial.print(" → Cue ");
+          Serial.println(Cue);
+          return;
+        }
+      }
+    }
   }
 }
 
