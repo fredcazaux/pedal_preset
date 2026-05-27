@@ -12,7 +12,10 @@
 
 
 // RH_ASK driver(2000, 11, 12, 10);  // (speed, rxPin, txPin, pttPin) pour ATmega328
-RH_ASK driver(2000, 0, 1, 2);  // Brochage pour Pro Micro (RX=0, TX=1, PTT=2)
+#define RF433_RX  14  // A0 - connecté à Pin 2 ou Pin 3 du MX-RM-5V
+#define RF433_TX  15  // A1 (non utilisé en réception seule)
+#define RF433_PTT 16  // A2 (optionnel)
+RH_ASK driver(2000, RF433_RX, RF433_TX, RF433_PTT);  // Brochage pour Pro Micro (RX=0, TX=1, PTT=2)
 
 // ===== 433MHz SECTION =====
 #define RF433_BUFFER_SIZE 4  // Taille du buffer pour les codes RF
